@@ -1,0 +1,4 @@
+bin/**
+session.json
+.env
+go.sum
