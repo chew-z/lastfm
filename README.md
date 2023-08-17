@@ -7,7 +7,7 @@ curl http://localhost:8080/scrobble
 
 ```
 
-* Login first on `` http://localhost:8080/``. 
+* Login first on `` http://localhost:8080/``. It stores session key in session.json so authorization has unlimited life theoretically.
 
 * Configure parameters in .env file or use export
 
@@ -20,4 +20,6 @@ JSON_PATH: "/home/.../../"
 
 * when in doubts read the code
 
+Put it behind some nginx on a server or on Google Cloud...
 
+Enjoy
