@@ -21,18 +21,19 @@ type Session struct {
 }
 
 var (
-	apiKey      = os.Getenv("API_KEY")
-	apiSecret   = os.Getenv("API_SECRET")
-	api         *lastfm.Api
-	callbackURL = os.Getenv("CALLBACK_URL")
-	P           lastfm.P
-	session     Session
+	apiKey    = os.Getenv("API_KEY")
+	apiSecret = os.Getenv("API_SECRET")
+	api       *lastfm.Api
+	uRL       = os.Getenv("URL")
+	path      = os.Getenv("JSON_PATH")
+	P         lastfm.P
+	session   Session
 )
 
 func init() {
 	api = lastfm.New(apiKey, apiSecret)
-
-	sessionFile, err := os.Open("session.json")
+	file := path + "session.json"
+	sessionFile, err := os.Open(file)
 	if err != nil {
 		log.Println("opening session.json file", err.Error())
 	}
@@ -49,19 +50,89 @@ func main() {
 	router := gin.Default()
 	router.LoadHTMLGlob("templates/*")
 	router.GET("/", func(c *gin.Context) {
-		u := api.GetAuthRequestUrl(callbackURL)
+		u := api.GetAuthRequestUrl(uRL + "/callback")
 		c.HTML(http.StatusOK, "main.html", gin.H{
-			"title": "Main page",
-			"URL":   u,
+			"URL": u,
 		})
 	})
 
-	router.GET("/callback", callback)
 	router.POST("/nowplaying", nowPlaying)
 	router.GET("/scrobble", scrobble)
-	router.GET("/user", user)
+	router.GET("/saveNowPlaying", saveNowPlaying)
+	router.GET("/callback", callback)
 	router.GET("/save", save)
-	router.Run(":8080") // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
+	router.GET("/user", user)
+
+	router.Run("localhost:8086")
+}
+
+func nowPlaying(c *gin.Context) {
+	song := c.PostForm("song")
+	split := strings.Split(song, " - ")
+	artist := split[0]
+	track := split[1]
+	start := time.Now().Unix()
+
+	// file := path + "playing.json"
+	// trackFile, err := os.Open(file)
+	// if err != nil {
+	// 	log.Println("opening playing.json file", err.Error())
+	// }
+	// var p  lastfm.P
+	// jsonParser := json.NewDecoder(trackFile)
+	// if err = jsonParser.Decode(&p); err != nil {
+	// 	log.Println("parsing playing.json file", err.Error())
+	// }
+
+	p := lastfm.P{"artist": artist, "track": track, "timestamp": start}
+	updatedTrack, err := api.Track.UpdateNowPlaying(p)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	uP := lastfm.P{"artist": updatedTrack.Artist.Name, "track": updatedTrack.Track.Name, "timestamp": start}
+	log.Println("Now playing: ", uP["artist"], uP["track"])
+	P = uP
+
+	c.String(http.StatusOK, "Now playing: %s - %s", uP["artist"], uP["track"])
+	return
+}
+
+func scrobble(c *gin.Context) {
+	p := P
+	if p != nil {
+		log.Println("Now scrobbling: ", p["artist"], p["track"])
+		p["chosenByUser"] = 0
+	}
+	sP, err := api.Track.Scrobble(p)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	accepted := sP.Accepted
+	if accepted == "1" {
+		track := sP.Scrobbles[0].Track.Name
+		artist := sP.Scrobbles[0].Artist.Name
+		c.String(http.StatusOK, "Scrobbled %s - %s with result: %s", artist, track, accepted)
+		return
+	}
+	c.String(http.StatusOK, "Scrobbled with result: %s", accepted)
+	return
+}
+
+func saveNowPlaying(c *gin.Context) {
+	trackJson, err := json.Marshal(&P)
+	if err != nil {
+		log.Println(err.Error())
+	}
+	file := path + "playing.json"
+	err = ioutil.WriteFile(file, trackJson, 0644)
+	if err != nil {
+		log.Println(err.Error())
+	}
+	log.Println("Playing: ", P)
+	c.String(http.StatusOK, "Saved now playing")
+	return
 }
 
 func callback(c *gin.Context) {
@@ -75,12 +146,7 @@ func callback(c *gin.Context) {
 	}
 	session.User = result.Name
 	log.Println("Session: ", session)
-	// sessionJson, err := json.Marshal(&session)
-	// if err != nil {
-	// 	log.Println(err.Error())
-	// }
-	// err = ioutil.WriteFile("session.json", sessionJson, 0644)
-	c.Redirect(http.StatusFound, "http://localhost:8080/save")
+	c.Redirect(http.StatusFound, uRL+"/save")
 }
 
 func save(c *gin.Context) {
@@ -88,7 +154,8 @@ func save(c *gin.Context) {
 	if err != nil {
 		log.Println(err.Error())
 	}
-	err = ioutil.WriteFile("session.json", sessionJson, 0644)
+	file := path + "session.json"
+	err = ioutil.WriteFile(file, sessionJson, 0644)
 	if err != nil {
 		log.Println(err.Error())
 	}
@@ -116,34 +183,5 @@ func user(c *gin.Context) {
 			"title":    "Show user",
 		},
 	)
-	return
-}
-
-func nowPlaying(c *gin.Context) {
-	song := c.PostForm("song")
-	split := strings.Split(song, " - ")
-	artist := split[0]
-	track := split[1]
-
-	start := time.Now().Unix()
-	p := lastfm.P{"artist": artist, "track": track}
-	p["timestamp"] = start
-	_, err := api.Track.UpdateNowPlaying(p)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	P = p
-	c.String(http.StatusOK, "Now playing: %s - %s", p["artist"], p["track"])
-	return
-}
-func scrobble(c *gin.Context) {
-	p := P
-	_, err := api.Track.Scrobble(p)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	c.String(http.StatusOK, "Scrobbled %s - %s", p["artist"], p["track"])
 	return
 }
