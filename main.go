@@ -85,7 +85,7 @@ func nowPlaying(c *gin.Context) {
 	start := now.Unix()
 	if x, found := kaszka.Get("nowPlaying"); found {
 		s := x.(*Scrobble)
-		if time.Unix(s.Time).Add(5*time.Minute) > now {
+		if (start - s.Time) < 300000 { // 5 minutes * 60 secodnds * 10000 miliseconds
 			c.String(http.StatusOK, "Same song is already playing")
 			return
 		}
@@ -103,7 +103,7 @@ func nowPlaying(c *gin.Context) {
 		Title:  updatedTrack.Track.Name,
 		Time:   start,
 	}
-	log.Println("Now playing: ", uP.Artist, uP.Track)
+	log.Println("Now playing: ", uP.Artist, uP.Title)
 	kaszka.SetDefault("nowPlaying", uP)
 	c.String(http.StatusOK, "Now playing: %s - %s", uP.Artist, uP.Title)
 	return
