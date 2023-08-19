@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -78,14 +79,19 @@ func main() {
 
 func nowPlaying(c *gin.Context) {
 	song := c.PostForm("song")
+	sP := c.PostForm("start")
+	start, err := strconv.ParseInt(sP, 10, 64)
+	if err != nil {
+		start = time.Now().Unix()
+	}
 	split := strings.Split(song, " - ")
 	artist := split[0]
 	track := split[1]
-	now := time.Now()
-	start := now.Unix()
 	if x, found := kaszka.Get("nowPlaying"); found {
 		s := x.(*Scrobble)
-		if (start - s.Time) < 300000 { // 5 minutes * 60 secodnds * 10000 miliseconds
+		log.Println(time.Unix(start, 0), " / ", time.Unix(s.Time, 0))
+		// Same song within 3 minutes - ignore
+		if (start-s.Time) < 180000 && song == s.Song { // 3 minutes * 60 secodnds * 10000 miliseconds
 			c.String(http.StatusOK, "Same song is already playing")
 			return
 		}
