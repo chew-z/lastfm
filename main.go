@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/joho/godotenv/autoload"
+	"github.com/patrickmn/go-cache"
 	"github.com/shkh/lastfm-go/lastfm"
 )
 
@@ -18,6 +19,13 @@ type Session struct {
 	Key   string `json:"key,omitempty"`
 	Token string `json:"token,omitempty"`
 	User  string `json:"user,omitempty"`
+}
+
+type Scrobble struct {
+	Song   string
+	Artist string
+	Title  string
+	Time   int64
 }
 
 var (
@@ -28,6 +36,7 @@ var (
 	path      = os.Getenv("JSON_PATH")
 	P         lastfm.P
 	session   Session
+	kaszka    = cache.New(24*time.Hour, 30*time.Minute)
 )
 
 func init() {
@@ -44,6 +53,7 @@ func init() {
 	}
 	// log.Println(session.Key)
 	api.SetSession(session.Key)
+	kaszka.Flush()
 }
 
 func main() {
@@ -71,52 +81,57 @@ func nowPlaying(c *gin.Context) {
 	split := strings.Split(song, " - ")
 	artist := split[0]
 	track := split[1]
-	start := time.Now().Unix()
-
-	// file := path + "playing.json"
-	// trackFile, err := os.Open(file)
-	// if err != nil {
-	// 	log.Println("opening playing.json file", err.Error())
-	// }
-	// var p  lastfm.P
-	// jsonParser := json.NewDecoder(trackFile)
-	// if err = jsonParser.Decode(&p); err != nil {
-	// 	log.Println("parsing playing.json file", err.Error())
-	// }
-
+	now := time.Now()
+	start := now.Unix()
+	if x, found := kaszka.Get("nowPlaying"); found {
+		s := x.(*Scrobble)
+		if time.Unix(s.Time).Add(5*time.Minute) > now {
+			c.String(http.StatusOK, "Same song is already playing")
+			return
+		}
+	}
 	p := lastfm.P{"artist": artist, "track": track, "timestamp": start}
 	updatedTrack, err := api.Track.UpdateNowPlaying(p)
 	if err != nil {
 		log.Println(err)
+		c.String(http.StatusOK, err.Error())
 		return
 	}
-	uP := lastfm.P{"artist": updatedTrack.Artist.Name, "track": updatedTrack.Track.Name, "timestamp": start}
-	log.Println("Now playing: ", uP["artist"], uP["track"])
-	P = uP
-
-	c.String(http.StatusOK, "Now playing: %s - %s", uP["artist"], uP["track"])
+	uP := &Scrobble{
+		Song:   song,
+		Artist: updatedTrack.Artist.Name,
+		Title:  updatedTrack.Track.Name,
+		Time:   start,
+	}
+	log.Println("Now playing: ", uP.Artist, uP.Track)
+	kaszka.SetDefault("nowPlaying", uP)
+	c.String(http.StatusOK, "Now playing: %s - %s", uP.Artist, uP.Title)
 	return
 }
 
 func scrobble(c *gin.Context) {
-	p := P
-	if p != nil {
+	if x, found := kaszka.Get("nowPlaying"); found {
+		s := x.(*Scrobble)
+		p := lastfm.P{"artist": s.Artist, "track": s.Title, "timestamp": s.Time, "chosenByUser": 0}
 		log.Println("Now scrobbling: ", p["artist"], p["track"])
-		p["chosenByUser"] = 0
-	}
-	sP, err := api.Track.Scrobble(p)
-	if err != nil {
-		log.Println(err)
+
+		sP, err := api.Track.Scrobble(p)
+		if err != nil {
+			log.Println(err)
+			c.String(http.StatusOK, err.Error())
+			return
+		}
+		accepted := sP.Accepted
+		if accepted == "1" {
+			track := sP.Scrobbles[0].Track.Name
+			artist := sP.Scrobbles[0].Artist.Name
+			c.String(http.StatusOK, "Scrobbled %s - %s with result: %s", artist, track, accepted)
+			return
+		}
+		c.String(http.StatusOK, "Scrobbled with result: %s", accepted)
 		return
 	}
-	accepted := sP.Accepted
-	if accepted == "1" {
-		track := sP.Scrobbles[0].Track.Name
-		artist := sP.Scrobbles[0].Artist.Name
-		c.String(http.StatusOK, "Scrobbled %s - %s with result: %s", artist, track, accepted)
-		return
-	}
-	c.String(http.StatusOK, "Scrobbled with result: %s", accepted)
+	c.String(http.StatusOK, "Seems like cache is empty")
 	return
 }
 
