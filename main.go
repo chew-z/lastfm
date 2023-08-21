@@ -35,7 +35,6 @@ var (
 	api       *lastfm.Api
 	uRL       = os.Getenv("URL")
 	path      = os.Getenv("JSON_PATH")
-	P         lastfm.P
 	session   Session
 	kaszka    = cache.New(24*time.Hour, 30*time.Minute)
 )
@@ -70,9 +69,9 @@ func main() {
 	router.POST("/nowplaying", nowPlaying)
 	router.GET("/scrobble", scrobble)
 	router.GET("/saveNowPlaying", saveNowPlaying)
+	router.GET("/saveSession", saveSession)
+	router.GET("/displayUser", displayUser)
 	router.GET("/callback", callback)
-	router.GET("/save", save)
-	router.GET("/user", user)
 
 	router.Run("localhost:8086")
 }
@@ -89,7 +88,7 @@ func nowPlaying(c *gin.Context) {
 	track := split[1]
 	if x, found := kaszka.Get("nowPlaying"); found {
 		s := x.(*Scrobble)
-		log.Println(time.Unix(start, 0), " / ", time.Unix(s.Time, 0))
+		// log.Println(time.Unix(start, 0), " / ", time.Unix(s.Time, 0))
 		// Same song within 3 minutes - ignore
 		if (start-s.Time) < 180000 && song == s.Song { // 3 minutes * 60 secodnds * 10000 miliseconds
 			c.String(http.StatusOK, "Same song is already playing")
@@ -142,18 +141,29 @@ func scrobble(c *gin.Context) {
 }
 
 func saveNowPlaying(c *gin.Context) {
-	trackJson, err := json.Marshal(&P)
-	if err != nil {
-		log.Println(err.Error())
+	if x, found := kaszka.Get("nowPlaying"); found {
+		s := x.(*Scrobble)
+		P := lastfm.P{"artist": s.Artist, "track": s.Title, "timestamp": s.Time, "chosenByUser": 0}
+		trackJson, err := json.Marshal(&P)
+		if err != nil {
+			log.Println(err.Error())
+			c.String(http.StatusOK, err.Error())
+			return
+		}
+		file := path + "nowPlaying.json"
+		err = ioutil.WriteFile(file, trackJson, 0666)
+		if err != nil {
+			log.Println(err.Error())
+			c.String(http.StatusOK, err.Error())
+			return
+		}
+		log.Println("Playing: ", P)
+		c.String(http.StatusOK, "Saved now playing")
+		return
+	} else {
+		c.String(http.StatusOK, "Could not find now playing in cache")
+		return
 	}
-	file := path + "playing.json"
-	err = ioutil.WriteFile(file, trackJson, 0644)
-	if err != nil {
-		log.Println(err.Error())
-	}
-	log.Println("Playing: ", P)
-	c.String(http.StatusOK, "Saved now playing")
-	return
 }
 
 func callback(c *gin.Context) {
@@ -163,32 +173,40 @@ func callback(c *gin.Context) {
 	session.Key = api.GetSessionKey()
 	result, err := api.User.GetInfo(nil)
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Println(err.Error())
+		c.String(http.StatusOK, err.Error())
+		return
 	}
 	session.User = result.Name
 	log.Println("Session: ", session)
 	c.Redirect(http.StatusFound, uRL+"/save")
 }
 
-func save(c *gin.Context) {
+func saveSession(c *gin.Context) {
 	sessionJson, err := json.Marshal(&session)
 	if err != nil {
 		log.Println(err.Error())
+		c.String(http.StatusOK, err.Error())
+		return
 	}
 	file := path + "session.json"
-	err = ioutil.WriteFile(file, sessionJson, 0644)
+	err = ioutil.WriteFile(file, sessionJson, 0666)
 	if err != nil {
 		log.Println(err.Error())
+		c.String(http.StatusOK, err.Error())
+		return
 	}
 	log.Println("Session: ", session)
 	c.String(http.StatusOK, "Saved session")
 	return
 }
 
-func user(c *gin.Context) {
+func displayUser(c *gin.Context) {
 	result, err := api.User.GetInfo(nil)
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Println(err.Error())
+		c.String(http.StatusOK, err.Error())
+		return
 	}
 	// session.User = result.Name
 	// log.Println("Session: ", session)

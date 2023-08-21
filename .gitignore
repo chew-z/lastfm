@@ -1,4 +1,4 @@
 bin/**
-session.json
+*.json
 .env
 go.sum
