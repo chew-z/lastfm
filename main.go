@@ -24,6 +24,7 @@ type Session struct {
 
 type Scrobble struct {
 	Song   string
+	Album  string
 	Artist string
 	Title  string
 	Time   int64
@@ -78,6 +79,7 @@ func main() {
 
 func nowPlaying(c *gin.Context) {
 	song := c.PostForm("song")
+	album := c.DefaultPostForm("album", "noalbum")
 	sP := c.PostForm("start")
 	start, err := strconv.ParseInt(sP, 10, 64)
 	if err != nil {
@@ -96,6 +98,10 @@ func nowPlaying(c *gin.Context) {
 		}
 	}
 	p := lastfm.P{"artist": artist, "track": track, "timestamp": start}
+	if album != "" {
+		p["album"] = album
+	}
+	// log.Println(p)
 	updatedTrack, err := api.Track.UpdateNowPlaying(p)
 	if err != nil {
 		log.Println(err)
@@ -104,21 +110,24 @@ func nowPlaying(c *gin.Context) {
 	}
 	uP := &Scrobble{
 		Song:   song,
+		Album:  updatedTrack.Album.Name,
 		Artist: updatedTrack.Artist.Name,
 		Title:  updatedTrack.Track.Name,
 		Time:   start,
 	}
-	log.Println("Now playing: ", uP.Artist, uP.Title)
+	log.Println(uP)
+	log.Println("Now playing: ", uP.Artist, uP.Title, uP.Album)
 	kaszka.SetDefault("nowPlaying", uP)
-	c.String(http.StatusOK, "Now playing: %s - %s", uP.Artist, uP.Title)
+	c.String(http.StatusOK, "Now playing: %s - %s [%s]", uP.Artist, uP.Title, uP.Album)
 	return
 }
 
 func scrobble(c *gin.Context) {
 	if x, found := kaszka.Get("nowPlaying"); found {
 		s := x.(*Scrobble)
-		p := lastfm.P{"artist": s.Artist, "track": s.Title, "timestamp": s.Time, "chosenByUser": 0}
-		log.Println("Now scrobbling: ", p["artist"], p["track"])
+		p := lastfm.P{"album": s.Album, "artist": s.Artist, "track": s.Title, "timestamp": s.Time, "chosenByUser": 0}
+		log.Println(p)
+		log.Println("Now scrobbling: ", p["artist"], p["track"], p["album"])
 
 		sP, err := api.Track.Scrobble(p)
 		if err != nil {
