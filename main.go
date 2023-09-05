@@ -90,15 +90,14 @@ func nowPlaying(c *gin.Context) {
 	track := split[1]
 	if x, found := kaszka.Get("nowPlaying"); found {
 		s := x.(*Scrobble)
-		// log.Println(time.Unix(start, 0), " / ", time.Unix(s.Time, 0))
-		// Same song within 3 minutes - ignore
-		if (start-s.Time) < 180000 && song == s.Song { // 3 minutes * 60 secodnds * 10000 miliseconds
+		// Same song within 2.5 minutes - ignore
+		if (start-s.Time) < 150000 && song == s.Song { // 2.5 minutes * 60 secodnds * 10000 miliseconds
 			c.String(http.StatusOK, "Same song is already playing")
 			return
 		}
 	}
 	p := lastfm.P{"artist": artist, "track": track, "timestamp": start}
-	if album != "" {
+	if album != "noalbum" && album != "" {
 		p["album"] = album
 	}
 	// log.Println(p)
