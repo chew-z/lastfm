@@ -23,11 +23,12 @@ type Session struct {
 }
 
 type Scrobble struct {
-	Song   string
-	Album  string
-	Artist string
-	Title  string
-	Time   int64
+	Song      string
+	Album     string
+	Artist    string
+	Title     string
+	Time      int64
+	Scrobbled bool
 }
 
 var (
@@ -90,9 +91,10 @@ func nowPlaying(c *gin.Context) {
 	track := split[1]
 	if x, found := kaszka.Get("nowPlaying"); found {
 		s := x.(*Scrobble)
-		// Same song within 2.5 minutes - ignore
-		if (start-s.Time) < 150000 && song == s.Song { // 2.5 minutes * 60 secodnds * 10000 miliseconds
-			c.String(http.StatusOK, "Same song is already playing")
+		// log.Println(time.Unix(start, 0), " / ", time.Unix(s.Time, 0))
+		// Same song within 3 minutes - ignore
+		if (start-s.Time) < 180000 && song == s.Song { // 3 minutes * 60 secodnds * 10000 miliseconds
+			c.String(http.StatusOK, "%s is already playing", song)
 			return
 		}
 	}
@@ -108,13 +110,14 @@ func nowPlaying(c *gin.Context) {
 		return
 	}
 	uP := &Scrobble{
-		Song:   song,
-		Album:  updatedTrack.Album.Name,
-		Artist: updatedTrack.Artist.Name,
-		Title:  updatedTrack.Track.Name,
-		Time:   start,
+		Song:      song,
+		Album:     updatedTrack.Album.Name,
+		Artist:    updatedTrack.Artist.Name,
+		Title:     updatedTrack.Track.Name,
+		Time:      start,
+		Scrobbled: false,
 	}
-	log.Println(uP)
+	log.Println(*uP)
 	log.Println("Now playing: ", uP.Artist, uP.Title, uP.Album)
 	kaszka.SetDefault("nowPlaying", uP)
 	c.String(http.StatusOK, "Now playing: %s - %s [%s]", uP.Artist, uP.Title, uP.Album)
@@ -125,24 +128,30 @@ func scrobble(c *gin.Context) {
 	if x, found := kaszka.Get("nowPlaying"); found {
 		s := x.(*Scrobble)
 		p := lastfm.P{"album": s.Album, "artist": s.Artist, "track": s.Title, "timestamp": s.Time, "chosenByUser": 0}
-		log.Println(p)
-		log.Println("Now scrobbling: ", p["artist"], p["track"], p["album"])
-
-		sP, err := api.Track.Scrobble(p)
-		if err != nil {
-			log.Println(err)
-			c.String(http.StatusOK, err.Error())
+		// log.Println(p)
+		if s.Scrobbled == false {
+			log.Println("Now scrobbling: ", p["artist"], p["track"], p["album"])
+			sP, err := api.Track.Scrobble(p)
+			if err != nil {
+				log.Println(err)
+				c.String(http.StatusOK, err.Error())
+				return
+			}
+			accepted := sP.Accepted
+			if accepted == "1" {
+				s.Scrobbled = true
+				kaszka.SetDefault("nowPlaying", s)
+				track := sP.Scrobbles[0].Track.Name
+				artist := sP.Scrobbles[0].Artist.Name
+				c.String(http.StatusOK, "Scrobbled %s - %s with result: %s", artist, track, accepted)
+				return
+			}
+			c.String(http.StatusOK, "Scrobbled %s with result: %s", s.Song, accepted)
+			return
+		} else {
+			c.String(http.StatusOK, "Scrobbled %s already", s.Song)
 			return
 		}
-		accepted := sP.Accepted
-		if accepted == "1" {
-			track := sP.Scrobbles[0].Track.Name
-			artist := sP.Scrobbles[0].Artist.Name
-			c.String(http.StatusOK, "Scrobbled %s - %s with result: %s", artist, track, accepted)
-			return
-		}
-		c.String(http.StatusOK, "Scrobbled with result: %s", accepted)
-		return
 	}
 	c.String(http.StatusOK, "Seems like cache is empty")
 	return
