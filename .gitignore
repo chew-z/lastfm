@@ -2,3 +2,4 @@ bin/**
 *.json
 .env
 go.sum
+codemcp.toml

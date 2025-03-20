@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -168,7 +167,7 @@ func saveNowPlaying(c *gin.Context) {
 			return
 		}
 		file := path + "nowPlaying.json"
-		err = ioutil.WriteFile(file, trackJson, 0666)
+		err = os.WriteFile(file, trackJson, 0666)
 		if err != nil {
 			log.Println(err.Error())
 			c.String(http.StatusOK, err.Error())
@@ -207,7 +206,7 @@ func saveSession(c *gin.Context) {
 		return
 	}
 	file := path + "session.json"
-	err = ioutil.WriteFile(file, sessionJson, 0666)
+	err = os.WriteFile(file, sessionJson, 0666)
 	if err != nil {
 		log.Println(err.Error())
 		c.String(http.StatusOK, err.Error())
